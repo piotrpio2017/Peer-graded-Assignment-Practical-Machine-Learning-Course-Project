@@ -1,17 +1,9 @@
 ---
 title: "How well weight lifting exercises are done by people?"
 author: "Piotr Tomasz Piotrowski"
-output:
-  html_document: null
-  fig_height: 12
-  fig_width: 15
-  fig_caption: yes
-  word_document: default
+output: html_document
 ---
-```{r echo = FALSE, warning=FALSE}
-library(knitr)
-opts_chunk$set(tidy.opts=list(width.cutoff=80),tidy=TRUE)
-```
+
 
 <br />
 
