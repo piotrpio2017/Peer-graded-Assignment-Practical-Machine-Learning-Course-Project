@@ -1,0 +1,175 @@
+---
+title: "How well weight lifting exercises are done by people?"
+author: "Piotr Tomasz Piotrowski"
+output:
+  html_document: null
+  fig_height: 12
+  fig_width: 15
+  fig_caption: yes
+  word_document: default
+---
+```{r echo = FALSE, warning=FALSE}
+library(knitr)
+opts_chunk$set(tidy.opts=list(width.cutoff=80),tidy=TRUE)
+```
+
+<br />
+
+## Executive Summary
+This report was written for purposes of Peer-graded Assignment: "Prediction Assignment Writeup", contained in "Practical Machine Learning" Coursera Course. The report answers to general research question "How well weight lifting exercises are done by people? through processing data from sports devices accelerometers, located: on the belt, forearm, arm, and dumbell, of 6 participants. The data were processed using two kinds of machine learning algorithms, that is: Random Forest and Recursive Partitioning and Regression Trees. Model selection, Features selection, Cross validation, calculations of out of sample errors and final prediction related to quality of weight lifting exercising were performed for both two models. Model using Random Forest algorithm offers smaller prediction errors and bigger fitting accuracy for used datasets. Final prediction results are available in last part of this work.
+
+<br />
+
+
+## Load training and test data
+```{r}
+if(!file.exists("./pml-training.csv")){
+  download.file(url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "pml-training.csv")
+}
+if(!file.exists("./pml-testing.csv")){
+  download.file(url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "pml-testing.csv")
+}
+training <- read.csv(file = "./pml-training.csv")
+str(training, list.len = 15)
+testing <- read.csv(file = "./pml-testing.csv")
+str(testing, list.len = 15)
+```
+
+<br />
+
+
+## Data analysis and cleaning
+Remove variables not related to accelerometers, that is related to: row number, user, time, windows, gyroscope and magnetometer:
+```{r}
+training <- training[ ,-(1:7)]
+testing <- testing[ ,-(1:7)]
+gyrosMagnetVariables <- grep(pattern = "gyros|magnet", x = colnames(training))
+training <- training[, -gyrosMagnetVariables]
+testing <- testing[, -gyrosMagnetVariables]
+```
+There are variables, which have NAs in all rows in testing data. Such variables will be removed from testing data, because they do not contain information. The same variables, like excluded in testing data, will be removed also from training data. These variables contain NAs or NULLs for almost all rows, so information lost is marginal:
+```{r}
+naColumnsTesting <- colnames(testing[,colSums(is.na(testing)) == nrow(testing)])
+testing <- testing[,colSums(is.na(testing)) != nrow(testing)]
+training <- training[ , !(colnames(training) %in% naColumnsTesting)]
+```
+After above operations both testing data and training data do not contain: NAs, NULLs and "#DIV/0!" values.
+
+<br />
+
+
+## Split training set to new training set and test set for cross validation of model related to Random Forest algorithm
+```{r warning=FALSE, message=FALSE, cache=FALSE}
+library("caret")
+library("e1071")
+inTrain <- createDataPartition(y = training$classe, p = 0.75, list = FALSE)
+trainingCV <- training[inTrain, ]
+dim(trainingCV)
+testingCV <- training[-inTrain, ]
+dim(testingCV)
+```
+
+<br />
+
+
+## Model fitting using Breiman's Random Forest algorithm
+Model fitting using Breiman's Random Forest algorithm is performed using randomForest function. Random Forest algorithm was used in the report, because such algorithm was successfully applied in earlier work [[VBGUF13]](#references). randomForest function was chosen as fast alternative of train function (with method = "rf"):
+```{r fig.align="center", message=FALSE, warning=FALSE, cache=FALSE}
+library("randomForest")
+modFitRF <- randomForest(classe ~., data = trainingCV, ntree = 450)
+plot(modFitRF)
+```
+The best model fitting was achieved when: <br /> 
+- the most correlated variables were not removed from training set, <br /> 
+- number of trees is higher.
+
+<br />
+
+
+## Feature selection - remove highly correlated variables to better perform modelling using Recursive Partitioning and Regression Trees algorithm
+```{r}
+correlationMatrix <- cor(subset(training, select = -c(classe)))
+highlyCorrelated <- findCorrelation(correlationMatrix, cutoff = 0.9)
+trainingWoCorrVars <- training[,-c(as.vector(highlyCorrelated))]
+dim(trainingWoCorrVars)
+```
+
+<br />
+
+
+## Split training set to new training set and test set for cross validation of model related to Recursive Partitioning and Regression Trees algorithm
+```{r}
+inTrainWoCorrVars <- createDataPartition(y = trainingWoCorrVars$classe, p = 0.75, list = FALSE)
+trainingCVWoCorrVars <- trainingWoCorrVars[inTrain, ]
+dim(trainingCVWoCorrVars)
+testingCVWoCorrVars <- trainingWoCorrVars[-inTrain, ]
+dim(testingCVWoCorrVars)
+```
+
+<br />
+
+
+## Model fitting using Recursive Partitioning and Regression Trees algorithm algorithm
+Model fitting using Recursive Partitioning and Regression Trees algorithm was also used in this report in order to make results comparison with Random Forest algorithm. Secondly, train function with "rpart" method working fast and gives consistent outputs format with Random Forest results. 
+```{r fig.align="center", cache=FALSE}
+modFitRPART <- train(classe ~., data = trainingCVWoCorrVars, method = "rpart")
+plot(modFitRPART, main = "modFitRPART")
+```
+The higher model fitting was achieved when: <br /> 
+- part of the most correlated variables were removed from training set using pair-wise absolute correlation cutoff equal 0.9 - higher or lower cutoffs give smaller model fitting, <br /> 
+- Complexity Parameter is equal 0.020.
+
+<br />
+
+
+## Prediction on testing set and Confusion Matrix used for cross validation for both models
+```{r}
+predRFCV <- predict(modFitRF, testingCV)
+confusionMatrix(testingCV$classe, predRFCV)
+
+predRPARTCV <- predict(modFitRPART, testingCVWoCorrVars)
+confusionMatrix(testingCVWoCorrVars$classe, predRPARTCV)
+```
+
+<br />
+
+
+## Out of sample errors as mean square errors and root mean square errors for both algorithms
+```{r message=FALSE, warning=FALSE}
+library("ModelMetrics")
+mseRF <- mse(testingCV$classe, predRFCV)
+mseRPART <- mse(testingCVWoCorrVars$classe, predRPARTCV)
+rmseRF <- rmse(testingCV$classe, predRFCV)
+rmseRPART <- rmse(testingCVWoCorrVars$classe, predRPARTCV)
+detach("package:ModelMetrics")
+```
+### Results summary for both algorithms
+```{r}
+accuracyRF <- as.numeric(confusionMatrix(testingCV$classe, predRFCV)$overall['Accuracy'])
+accuracyRPART <- as.numeric(confusionMatrix(testingCV$classe, predRPARTCV)$overall['Accuracy'])
+modelPropertyName <- c("Accuracy", "MSE", "RMSE")
+randomForest <- c(accuracyRF, mseRF, rmseRF)
+regressionTrees <- c(accuracyRPART, mseRPART, rmseRPART)
+data.frame(modelPropertyName, randomForest, regressionTrees)
+```
+Model using Random Forest algorithm has smaller prediction errors and higher accuracy.
+
+<br />
+
+
+## Prediction of 20 different test cases for both algorithms
+```{r}
+predRF <- predict(modFitRF, testing[ ,-29]) 
+table(predRF, testing$problem_id)
+
+predRPART <- predict(modFitRPART, testing[ ,-29]) 
+table(predRPART, testing$problem_id)
+```
+
+
+<br />
+
+
+## References
+[VBGUF13] Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. [Qualitative Activity Recognition of Weight Lifting Exercises.](http://web.archive.org/web/20161224072740/http://groupware.les.inf.puc-rio.br/public/papers/2013.Velloso.QAR-WLE.pdf) Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
